@@ -15,6 +15,12 @@ from fastapi.templating import Jinja2Templates
 
 from utils.face_processing import get_embedding, detector, load_known_embeddings_dict
 
+# ===================== CẤU HÌNH DỄ THAY =====================
+ESP32_URL = "http://192.168.0.198:81/stream"  # SỬA IP ESP32-CAM CỦA BẠN VÀO ĐÂY
+FACE_PAD = 0.25        # mở rộng bounding box: 0.2 = 20%, 0.25 = 25%
+CAPTURE_COUNT = 10     # số ảnh khi chụp thêm sinh viên (nên khớp với UI)
+CAPTURE_TIMEOUT = 30   # giây tối đa để chụp
+
 # ===================== TỰ ĐỘNG TẠO THƯ MỤC =====================
 required_dirs = [
     "static", "templates", "dataset", "models", "attendance/CS101"
@@ -84,8 +90,6 @@ app = FastAPI(title="Điểm Danh Khuôn Mặt - ESP32-CAM + FaceNet + SVM")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-ESP32_URL = "http://192.168.30.100:81/stream"  # SỬA IP ESP32-CAM CỦA BẠN VÀO ĐÂY
-
 # ===================== LOAD MODEL =====================
 MODEL = None
 ENCODER = None
@@ -147,6 +151,29 @@ class Camera:
         self.cap = None
         self.running = True
 
+    def _expand_and_clamp(self, x, y, w, h, frame_shape):
+        """
+        Mở rộng bounding box theo FACE_PAD rồi clamp về trong ảnh
+        frame_shape: (height, width, channels)
+        Trả về: x, y, w, h (ints)
+        """
+        fh, fw = frame_shape[0], frame_shape[1]
+
+        x = int(x - w * FACE_PAD)
+        y = int(y - h * FACE_PAD)
+        w = int(w * (1 + 2 * FACE_PAD))
+        h = int(h * (1 + 2 * FACE_PAD))
+
+        x = max(0, x)
+        y = max(0, y)
+        x2 = min(fw, x + w)
+        y2 = min(fh, y + h)
+
+        # recompute w,h to be exact
+        w = x2 - x
+        h = y2 - y
+        return x, y, w, h
+
     def get_frame(self):
         while self.running:
             if not self.cap or not self.cap.isOpened():
@@ -157,7 +184,8 @@ class Camera:
 
             ret, frame = self.cap.read()
             if not ret:
-                self.cap.release()
+                if self.cap:
+                    self.cap.release()
                 self.cap = None
                 time.sleep(1)
                 continue
@@ -172,16 +200,31 @@ class Camera:
             faces = detector.detect_faces(rgb)
 
             for face in faces:
-                x, y, w, h = [abs(v) for v in face['box']]
+                # Lấy bounding box từ MTCNN (x, y, w, h) có thể là số âm
+                bx, by, bw, bh = face['box']
+                # Nếu MTCNN trả về giá trị âm thì vẫn xử lý _expand_and_clamp
+                x, y, w, h = self._expand_and_clamp(bx, by, bw, bh, frame.shape)
+
+                # Nếu crop ra rỗng thì bỏ qua
+                if w <= 0 or h <= 0:
+                    continue
+
                 crop = rgb[y:y+h, x:x+w]
-                if crop.size == 0: continue
-                crop = cv2.resize(crop, (160, 160))
-                emb = get_embedding(crop)
+                if crop.size == 0:
+                    continue
+
+                # Resize để đưa vào FaceNet
+                try:
+                    crop_resized = cv2.resize(crop, (160, 160))
+                except Exception:
+                    continue
+
+                emb = get_embedding(crop_resized)
 
                 identity = "Unknown"
-                color = (0, 0, 255)  # đỏ
+                color = (0, 0, 255)  # đỏ mặc định (unknown)
 
-                if MODEL is not None:
+                if MODEL is not None and ENCODER is not None:
                     try:
                         prob = MODEL.predict_proba([emb])[0]
                         conf = max(prob)
@@ -189,15 +232,18 @@ class Camera:
                         if conf > 0.8:
                             name = students_db.get(pred_id, "Unknown")
                             identity = f"{pred_id} - {name}"
-                            color = (0, 255, 0)  # xanh
+                            color = (0, 255, 0)  # xanh cho known
                             record_attendance(pred_id, name)
-                    except:
+                    except Exception:
+                        # tránh crash nếu model lỗi
                         pass
                 else:
                     identity = "Chưa train model"
 
-                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 3)
-                cv2.putText(frame, identity, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+                # Vẽ khung mở rộng và tên
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
+                cv2.putText(frame, identity, (x, max(15, y - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
             # Hiển thị số người đã điểm danh
             with lock:
@@ -243,15 +289,15 @@ def today_info():
 # ===================== THÊM SINH VIÊN MỚI (CHỤP 10 ẢNH) =====================
 @app.get("/add-student", response_class=HTMLResponse)
 def add_student_page():
-    return """
+    return f"""
     <html>
     <head><title>Thêm Sinh Viên</title>
     <meta charset="utf-8">
     <style>
-        body {background:#111; color:white; font-family:Arial; text-align:center; padding:40px;}
-        input {width:300px; padding:12px; margin:10px; font-size:1.2em;}
-        button {padding:15px 40px; font-size:1.3em; background:#4CAF50; color:white; border:none; border-radius:10px; cursor:pointer;}
-        #status {margin-top:30px; font-size:1.5em;}
+        body {{background:#111; color:white; font-family:Arial; text-align:center; padding:40px;}}
+        input {{width:300px; padding:12px; margin:10px; font-size:1.2em;}}
+        button {{padding:15px 40px; font-size:1.3em; background:#4CAF50; color:white; border:none; border-radius:10px; cursor:pointer;}}
+        #status {{margin-top:30px; font-size:1.5em;}}
     </style>
     </head>
     <body>
@@ -259,34 +305,33 @@ def add_student_page():
         <p>Nhập thông tin rồi đứng trước camera và nhấn nút</p>
         <input type="text" id="sid" placeholder="MSSV (ví dụ: 21133069)" autocomplete="off"><br>
         <input type="text" id="sname" placeholder="Họ và tên"><br>
-        <button onclick="startCapture()">Chụp 10 ảnh liên tiếp</button>
+        <button onclick="startCapture()">Chụp {CAPTURE_COUNT} ảnh liên tiếp</button>
         <div id="status">Sẵn sàng</div>
 
         <script>
-        async function startCapture() {
+        async function startCapture() {{
             const id = document.getElementById('sid').value.trim();
             const name = document.getElementById('sname').value.trim();
             const status = document.getElementById('status');
-            if (!id || !name) {
+            if (!id || !name) {{
                 status.innerHTML = "<span style='color:red'>Nhập đầy đủ MSSV và Tên!</span>";
                 return;
-            }
-            status.innerHTML = "Đang chụp 10 ảnh... Nhìn thẳng vào camera!";
-            const res = await fetch(`/capture-photos?id=${id}&name=${encodeURIComponent(name)}`);
+            }}
+            status.innerHTML = "Đang chụp {CAPTURE_COUNT} ảnh... Nhìn thẳng vào camera!";
+            const res = await fetch(`/capture-photos?id=${{id}}&name=${{encodeURIComponent(name)}}`);
             const json = await res.json();
-            if (json.success) {
-                status.innerHTML = `<span style='color:lime'>THÀNH CÔNG! Đã lưu ${json.count} ảnh</span><br><br>
+            if (json.success) {{
+                status.innerHTML = `<span style='color:lime'>THÀNH CÔNG! Đã lưu ${{json.count}} ảnh</span><br><br>
                                     <a href="/train" style="color:yellow; font-size:1.3em;">TRAIN LẠI MODEL NGAY</a><br><br>
                                     <a href="/">Quay lại trang chủ</a>`;
-            } else {
-                status.innerHTML = `<span style='color:red'>Lỗi: ${json.error || 'Không rõ'}</span>`;
-            }
-        }
+            }} else {{
+                status.innerHTML = `<span style='color:red'>Lỗi: ${{json.error || 'Không rõ'}}</span>`;
+            }}
+        }}
         </script>
     </body>
     </html>
     """
-
 
 @app.get("/capture-photos")
 def capture_photos(id: str, name: str):
@@ -296,22 +341,19 @@ def capture_photos(id: str, name: str):
     folder = f"dataset/{id}"
     os.makedirs(folder, exist_ok=True)
 
-    # Thư mục lưu ảnh gốc kích thước lớn (tùy chọn)
-    folder_large = f"dataset/{id}/large"
-    os.makedirs(folder_large, exist_ok=True)
-
     captured = 0
     start_time = time.time()
 
-    print(f"[{datetime.now()}] Bắt đầu chụp ảnh cho {name} ({id})")
+    print(f"[{datetime.now()}] Bắt đầu chụp và crop khuôn mặt cho {name} ({id})")
 
-    while captured < 10 and (time.time() - start_time) < 25:  # tăng thời gian chờ lên 25s cho dễ chụp
+    while captured < CAPTURE_COUNT and (time.time() - start_time) < CAPTURE_TIMEOUT:
         with frame_lock:
             if latest_frame is None:
                 time.sleep(0.1)
                 continue
             frame = latest_frame.copy()
 
+        fh, fw = frame.shape[0], frame.shape[1]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         faces = detector.detect_faces(rgb)
 
@@ -321,32 +363,47 @@ def capture_photos(id: str, name: str):
 
         # Lấy khuôn mặt lớn nhất
         face = max(faces, key=lambda f: f['box'][2] * f['box'][3])
-        x, y, w, h = [abs(v) for v in face['box']]
-        face_crop = rgb[y:y + h, x:x + w]
-        if face_crop.size == 0:
+        bx, by, bw, bh = face['box']
+
+        # Mở rộng và clamp bounding box
+        x = int(bx - bw * FACE_PAD)
+        y = int(by - bh * FACE_PAD)
+        w = int(bw * (1 + 2 * FACE_PAD))
+        h = int(bh * (1 + 2 * FACE_PAD))
+
+        x = max(0, x)
+        y = max(0, y)
+        x2 = min(fw, x + w)
+        y2 = min(fh, y + h)
+
+        if x2 <= x or y2 <= y:
+            time.sleep(0.2)
             continue
 
-        # ================== ẢNH NHỎ 160×160 DÙNG ĐỂ TRAIN ==================
-        face_small = cv2.resize(face_crop, (160, 160))
-        small_filename = f"{folder}/{uuid.uuid4().hex[:12]}_160.jpg"
-        cv2.imwrite(small_filename, cv2.cvtColor(face_small, cv2.COLOR_RGB2BGR))
+        face_crop = rgb[y:y2, x:x2]
 
-        # ================== ẢNH LỚN (512×512 hoặc giữ nguyên kích thước) ==================
-        # Cách 1: Resize lên 512×512 (rất đẹp để in)
-        face_large = cv2.resize(face_crop, (512, 512))
+        # Kiểm tra crop hợp lệ
+        if face_crop.size == 0 or face_crop.shape[0] < 50 or face_crop.shape[1] < 50:
+            time.sleep(0.2)
+            continue
 
-        # Cách 2: Giữ nguyên kích thước gốc (nếu muốn tối đa chất lượng)
-        # face_large = face_crop.copy()
+        # Resize về đúng 160x160
+        try:
+            face_resized = cv2.resize(face_crop, (160, 160))
+        except Exception:
+            time.sleep(0.2)
+            continue
 
-        large_filename = f"{folder_large}/{uuid.uuid4().hex[:12]}_512.jpg"
-        cv2.imwrite(large_filename, cv2.cvtColor(face_large, cv2.COLOR_RGB2BGR))
+        # Lưu ảnh
+        filename = f"{folder}/{uuid.uuid4().hex[:12]}_160.jpg"
+        cv2.imwrite(filename, cv2.cvtColor(face_resized, cv2.COLOR_RGB2BGR))
 
         captured += 1
-        print(f"   Đã chụp {captured}/10 (160px + 512px)")
+        print(f"   Đã chụp và crop {captured}/{CAPTURE_COUNT} → lưu ảnh 160x160")
 
-        time.sleep(0.8)  # tăng nhẹ để thay đổi góc mặt đẹp hơn
+        time.sleep(1.0)  # chờ 1s giữa các shot
 
-    # Tự động thêm vào student_data.csv nếu chưa có
+    # Tự động thêm sinh viên vào student_data.csv nếu chưa có
     if os.path.exists("student_data.csv"):
         with open("student_data.csv", "r", encoding="utf-8") as f:
             content = f.read()
@@ -354,17 +411,28 @@ def capture_photos(id: str, name: str):
             with open("student_data.csv", "a", encoding="utf-8", newline="") as f:
                 w = csv.writer(f)
                 w.writerow([id, name])
+            # reload students_db in memory
+            global students_db
+            students_db = load_students()
+
+    if captured == 0:
+        return {
+            "success": False,
+            "error": "Không detect được khuôn mặt nào trong thời gian chờ. Hãy đứng gần camera hơn và thử lại."
+        }
 
     return {
         "success": True,
         "count": captured,
-        "note": "Đã lưu ảnh 160×160 (train) và 512×512 (xem/in ấn)"
+        "note": f"Đã lưu {captured} ảnh khuôn mặt crop chính xác 160x160 để train model"
     }
+
 # ===================== TRAIN MODEL TRÊN WEB =====================
 @app.get("/train", response_class=HTMLResponse)
 def train_web():
     from utils.training import train_model
     result = train_model()
+    # nếu train cập nhật KNOWN_EMBEDDINGS, bạn có thể reload ở đây nếu cần
     return f"""
     <html><body style="background:#000; color:lime; font-family:Arial; text-align:center; padding:50px;">
         <h1>TRAINING HOÀN TẤT!</h1>
