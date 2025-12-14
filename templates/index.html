@@ -1,32 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Điểm Danh Khuôn Mặt - ESP32-CAM</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: Arial; text-align: center; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
-        h1 { color: #00ff00; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        img { width: 100%; max-width: 900px; border: 5px solid #00ff00; border-radius: 10px; }
-        .info { margin: 20px; font-size: 1.5em; }
-    </style>
+  <title>ESP32 Face Recognition</title>
+  <style>
+    body {
+      background: black;
+      text-align: center;
+      color: lime;
+    }
+    img {
+      border: 2px solid lime;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>ĐIỂM DANH KHUÔN MẶT REALTIME</h1>
-        <p>Camera: ESP32-CAM | Model: FaceNet + SVM</p>
-        <img src="/video" alt="Camera Stream">
-        <div class="info">
-            Đã điểm danh hôm nay: <b><span id="count">0</span></b> học sinh
-        </div>
-    </div>
 
-    <script>
-        setInterval(() => {
-            fetch('/today').then(r => r.json()).then(data => {
-                document.getElementById('count').innerText = data.present;
-            });
-        }, 2000);
-    </script>
+<h1>ESP32 Face Recognition</h1>
+
+<img src="http://127.0.0.1:8000/video" width="640">
+
 </body>
 </html>

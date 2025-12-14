@@ -1,53 +1,56 @@
 # utils/training.py
 import os
+import cv2
 import numpy as np
-from .face_processing import extract_face, get_embedding
-from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import SVC
 import pickle
+from mtcnn import MTCNN
+from keras_facenet import FaceNet
 
+detector = MTCNN()
+embedder = FaceNet()
+
+DATASET_DIR = "dataset"
+MODEL_DIR = "models"
 
 def train_model():
-    X, Y = [], []
-    dataset_dir = "dataset"
-
-    for student_id in os.listdir(dataset_dir):
-        student_path = os.path.join(dataset_dir, student_id)
-        if not os.path.isdir(student_path):
-            continue
-        for img_name in os.listdir(student_path):
-            img_path = os.path.join(student_path, img_name)
-            face = extract_face(img_path)
-            if face is not None:
-                emb = get_embedding(face)
-                X.append(emb)
-                Y.append(student_id)
-
-    if len(X) == 0:
-        return {"error": "No faces found in dataset"}
-
-    X = np.array(X)
-    Y = np.array(Y)
-
-    encoder = LabelEncoder()
-    Y_encoded = encoder.fit_transform(Y)
-
-    model = SVC(kernel='linear', probability=True)
-    model.fit(X, Y_encoded)
-
-    # Lưu model và encoder
-    os.makedirs("models", exist_ok=True)
-    with open("models/svm_model.pkl", "wb") as f:
-        pickle.dump(model, f)
-    with open("models/encoder.pkl", "wb") as f:
-        pickle.dump(encoder, f)
-
-    # Lưu known embeddings
     known_embeddings = {}
-    for emb, label in zip(X, Y):
-        known_embeddings.setdefault(label, []).append(emb)
 
-    with open("models/known_embeddings.pkl", "wb") as f:
+    for person in os.listdir(DATASET_DIR):
+        person_dir = os.path.join(DATASET_DIR, person)
+        if not os.path.isdir(person_dir):
+            continue
+
+        embeddings = []
+
+        for img_name in os.listdir(person_dir):
+            img_path = os.path.join(person_dir, img_name)
+            img = cv2.imread(img_path)
+            if img is None:
+                continue
+
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            faces = detector.detect_faces(rgb)
+            if not faces:
+                continue
+
+            x, y, w, h = faces[0]["box"]
+            x, y = abs(x), abs(y)
+
+            face = rgb[y:y+h, x:x+w]
+            face = cv2.resize(face, (160, 160))
+            face = face.astype("float32")
+            face = np.expand_dims(face, axis=0)
+
+            emb = embedder.embeddings(face)[0]
+            emb = emb / np.linalg.norm(emb)
+
+            embeddings.append(emb)
+
+        if embeddings:
+            known_embeddings[person] = embeddings
+
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    with open(os.path.join(MODEL_DIR, "known_embeddings.pkl"), "wb") as f:
         pickle.dump(known_embeddings, f)
 
-    return {"message": "Training completed", "students": len(set(Y))}
+    print(f"✅ Training done: {len(known_embeddings)} identities")
