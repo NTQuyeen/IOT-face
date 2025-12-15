@@ -16,7 +16,7 @@ def load_known_embeddings():
     with open("models/known_embeddings.pkl", "rb") as f:
         return pickle.load(f)
 
-def recognize_faces(frame, known_dict, threshold=0.6):
+def recognize_faces(frame, known_dict, threshold=0.1):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = detector.detect_faces(rgb)
 
