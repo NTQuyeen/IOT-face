@@ -1,40 +1,65 @@
 # utils/attendance.py
-import os
-import pandas as pd
 from datetime import datetime
+from utils.db import get_db
 
-ATTENDANCE_FILE = "diem_danh.xlsx"
 
-def mark_attendance(name: str):
+def init_db():
     """
-    Ghi điểm danh cho một người vào file Excel.
-    Nếu file chưa tồn tại, tạo mới với các cột: Tên, Thời gian, Ngày
+    Tạo bảng attendance nếu chưa tồn tại
+    Gọi 1 lần khi server khởi động
     """
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100),
+            time DATETIME,
+            date DATE
+        )
+    """)
+
+    db.commit()
+    cur.close()
+    db.close()
+    print("✅ Attendance table ready")
+
+
+def mark_attendance(name):
+    db = get_db()
+    cur = db.cursor()
+
     now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M:%S")
+    today = now.date()
 
-    # Đọc file hiện tại (nếu có)
-    if os.path.exists(ATTENDANCE_FILE):
-        df = pd.read_excel(ATTENDANCE_FILE)
-    else:
-        df = pd.DataFrame(columns=["Tên", "Ngày", "Thời gian"])
+    # ❗ chống điểm danh trùng trong cùng ngày
+    cur.execute(
+        "SELECT id FROM attendance WHERE name=%s AND date=%s",
+        (name, today)
+    )
 
-    # Kiểm tra xem hôm nay người này đã điểm danh chưa
-    today_records = df[(df["Tên"] == name) & (df["Ngày"] == date_str)]
-    if not today_records.empty:
-        # Đã điểm danh hôm nay → bỏ qua
-        return
+    if cur.fetchone() is None:
+        cur.execute(
+            "INSERT INTO attendance (name, time, date) VALUES (%s, %s, %s)",
+            (name, now, today)
+        )
+        db.commit()
+        print(f"✅ Đã lưu điểm danh: {name}")
 
-    # Thêm bản ghi mới
-    new_row = pd.DataFrame({
-        "Tên": [name],
-        "Ngày": [date_str],
-        "Thời gian": [time_str]
-    })
+    cur.close()
+    db.close()
 
-    df = pd.concat([df, new_row], ignore_index=True)
 
-    # Lưu lại file
-    df.to_excel(ATTENDANCE_FILE, index=False)
-    print(f"Đã điểm danh: {name} - {date_str} {time_str}")
+def get_all_attendance():
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute(
+        "SELECT id, name, time, date FROM attendance ORDER BY time DESC"
+    )
+    records = cur.fetchall()
+
+    cur.close()
+    db.close()
+    return records

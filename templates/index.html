@@ -1,23 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ESP32 Face Recognition</title>
+  <title>Face Attendance System</title>
   <style>
     body {
-      background: black;
+      background: #000;
+      color: #0f0;
       text-align: center;
-      color: lime;
+      font-family: Arial;
     }
     img {
-      border: 2px solid lime;
+      border: 2px solid #0f0;
+      margin-top: 20px;
     }
   </style>
 </head>
 <body>
 
-<h1>ESP32 Face Recognition</h1>
+<h1>📸 HỆ THỐNG ĐIỂM DANH KHUÔN MẶT</h1>
+<p>Camera ESP32-CAM</p>
 
-<img src="http://127.0.0.1:8000/video" width="640">
+<img src="/video" width="640">
+
+<p>🟢 Màu xanh: Đã nhận diện</p>
+<p>🔴 Màu đỏ: Unknown</p>
+
+<br><br>
+<a href="/login" style="color: cyan;">🔐 Admin login</a>
 
 </body>
 </html>
