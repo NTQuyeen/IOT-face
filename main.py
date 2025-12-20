@@ -8,7 +8,7 @@ from collections import defaultdict
 from utils.face_processing import load_known_embeddings, recognize_faces
 from utils.attendance import mark_attendance,init_db, get_all_attendance
 from utils.db import get_db
-
+from fastapi.responses import JSONResponse
 # ================== CONFIG ==================
 ESP32_STREAM_URL = "http://192.168.1.143:81/stream"
 
@@ -26,6 +26,12 @@ known_embeddings = load_known_embeddings()
 today_date = datetime.now().strftime("%Y-%m-%d")
 marked_today = set()
 face_cache = defaultdict(list)
+
+# ===== REALTIME STATUS =====
+latest_attendance = {
+    "name": None,
+    "time": None
+}
 
 # ================== STREAM ==================
 def gen_frames():
@@ -67,6 +73,10 @@ def gen_frames():
                     if name not in marked_today:
                         mark_attendance(name)
                         marked_today.add(name)
+
+                        latest_attendance["name"] = name
+                        latest_attendance["time"] = datetime.now().strftime("%H:%M:%S")
+
                         print(f"✅ Điểm danh: {name}")
             else:
                 face_cache.pop(name, None)
@@ -151,3 +161,7 @@ def logout():
     response = RedirectResponse("/login", status_code=302)
     response.delete_cookie("admin")
     return response
+
+@app.get("/realtime-status")
+def realtime_status():
+    return JSONResponse(latest_attendance)
