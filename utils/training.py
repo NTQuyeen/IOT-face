@@ -7,30 +7,19 @@ from mtcnn import MTCNN
 from keras_facenet import FaceNet
 
 DATASET_DIR = "dataset"
-MODEL_DIR = "models"
-MODEL_PATH = os.path.join(MODEL_DIR, "known_embeddings.pkl")
+MODEL_PATH = "models/known_embeddings.pkl"
 
 detector = MTCNN()
 embedder = FaceNet()
 
-
 def train_model():
-    os.makedirs(MODEL_DIR, exist_ok=True)
-
-    # Load cũ nếu có
-    if os.path.exists(MODEL_PATH):
-        with open(MODEL_PATH, "rb") as f:
-            known_embeddings = pickle.load(f)
-    else:
-        known_embeddings = {}
+    embeddings = []
+    names = []
 
     for person in os.listdir(DATASET_DIR):
         person_dir = os.path.join(DATASET_DIR, person)
         if not os.path.isdir(person_dir):
             continue
-
-        if person not in known_embeddings:
-            known_embeddings[person] = []
 
         for img_name in os.listdir(person_dir):
             img_path = os.path.join(person_dir, img_name)
@@ -45,8 +34,8 @@ def train_model():
 
             x, y, w, h = faces[0]["box"]
             x, y = abs(x), abs(y)
-
             face = rgb[y:y+h, x:x+w]
+
             if face.size == 0:
                 continue
 
@@ -57,9 +46,15 @@ def train_model():
             emb = embedder.embeddings(face)[0]
             emb = emb / np.linalg.norm(emb)
 
-            known_embeddings[person].append(emb)
+            embeddings.append(emb)
+            names.append(person)
+
+    data = {
+        "embeddings": embeddings,
+        "names": names
+    }
 
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump(known_embeddings, f)
+        pickle.dump(data, f)
 
-    return f"✅ Training xong: {len(known_embeddings)} người"
+    return len(set(names))

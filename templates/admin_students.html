@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Attendance</title>
+    <title>Students</title>
     <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
@@ -11,34 +11,31 @@
     <h2>👮 ADMIN DASHBOARD</h2>
     <div class="nav">
         <a href="/attendance" class="nav-btn">📋 Điểm danh</a>
-        <a href="/admin/students" class="nav-btn">👨‍🎓 Sinh viên</a>
         <a href="/admin/add-student" class="nav-btn">➕ Thêm SV</a>
         <a href="/logout" class="logout">Đăng xuất</a>
     </div>
 </div>
 
-<h1>📋 Lịch sử điểm danh</h1>
+<h1>👨‍🎓 Danh sách sinh viên</h1>
 
 <div class="card">
-<form method="get">
-    <input type="date" name="date" value="{{ selected_date }}">
-    <button type="submit">🔍 Lọc</button>
-</form>
-
-<br>
-
 <table>
 <thead>
 <tr>
-    <th>Tên</th>
-    <th>Thời gian</th>
+    <th>Tên sinh viên</th>
+    <th>Hành động</th>
 </tr>
 </thead>
 <tbody>
-{% for row in records %}
+{% for s in students %}
 <tr>
-    <td>{{ row.name }}</td>
-    <td>{{ row.time }}</td>
+    <td>{{ s }}</td>
+    <td>
+        <a href="/admin/edit-student/{{ s }}">✏️ Sửa</a>
+        <a href="/admin/delete-student/{{ s }}"
+           class="logout"
+           onclick="return confirm('Xóa sinh viên này?')">🗑 Xóa</a>
+    </td>
 </tr>
 {% endfor %}
 </tbody>

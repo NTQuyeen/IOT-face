@@ -63,3 +63,18 @@ def get_all_attendance():
     cur.close()
     db.close()
     return records
+
+
+def get_attendance_by_date(date):
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute(
+        "SELECT id, name, time, date FROM attendance WHERE date=%s ORDER BY time DESC",
+        (date,)
+    )
+
+    records = cur.fetchall()
+    cur.close()
+    db.close()
+    return records

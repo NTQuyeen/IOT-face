@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Student</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+
+<div class="top-bar">
+    <h2>👮 ADMIN DASHBOARD</h2>
+    <div class="nav">
+        <a href="/attendance" class="nav-btn">📋 Điểm danh</a>
+        <a href="/admin/students" class="nav-btn">👨‍🎓 Sinh viên</a>
+        <a href="/logout" class="logout">Đăng xuất</a>
+    </div>
+</div>
+
+<h1>✏️ Sửa sinh viên</h1>
+
+<div class="card">
+<form method="post" action="/admin/edit-student">
+    <input type="hidden" name="old_name" value="{{ old_name }}">
+
+    <label>Tên mới</label>
+    <input type="text" name="new_name" required>
+
+    <button type="submit">💾 Lưu thay đổi</button>
+</form>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Add Student</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+
+<div class="top-bar">
+    <h2>👮 ADMIN DASHBOARD</h2>
+    <div class="nav">
+        <a href="/attendance" class="nav-btn">📋 Điểm danh</a>
+        <a href="/admin/students" class="nav-btn">👨‍🎓 Sinh viên</a>
+        <a href="/logout" class="logout">Đăng xuất</a>
+    </div>
+</div>
+
+<h1>➕ Thêm sinh viên</h1>
+
+<div class="card">
+<form method="post" enctype="multipart/form-data">
+    <input name="name" placeholder="Tên sinh viên" required>
+    <br><br>
+    <input type="file" name="images" multiple required>
+    <br><br>
+    <button type="submit">🚀 Thêm & Train</button>
+</form>
+
+{% if success %}
+<p style="color:#00ffcc">{{ success }}</p>
+{% endif %}
+</div>
+
+</body>
+</html>
