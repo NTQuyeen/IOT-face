@@ -37,8 +37,8 @@
 <tbody>
 {% for row in records %}
 <tr>
-    <td>{{ row.name }}</td>
-    <td>{{ row.time }}</td>
+    <td>{{ row[1] }}</td>   <!-- name -->
+    <td>{{ row[2] }}</td>   <!-- time -->
 </tr>
 {% endfor %}
 </tbody>

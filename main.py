@@ -18,7 +18,7 @@ from utils.db import get_db
 from fastapi.responses import JSONResponse
 from utils.embedding_manager import remove_student_embeddings
 # ================== CONFIG ==================
-ESP32_STREAM_URL = "http://192.168.1.16:81/stream"
+ESP32_STREAM_URL = "http://192.168.0.114:81/stream"
 
 THRESHOLD = 0.3
 MIN_FACE_SIZE = 60
