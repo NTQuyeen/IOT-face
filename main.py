@@ -17,14 +17,12 @@ from utils.attendance import mark_attendance,init_db, get_all_attendance,get_att
 from utils.db import get_db
 from fastapi.responses import JSONResponse
 from utils.embedding_manager import remove_student_embeddings
-# ================== CONFIG ==================
-ESP32_STREAM_URL = "http://192.168.0.114:81/stream"
+ESP32_STREAM_URL = "http://192.168.79.58:81/stream"
 
 THRESHOLD = 0.3
 MIN_FACE_SIZE = 60
 STABLE_FRAMES = 5
 
-# ================== APP ==================
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -42,34 +40,59 @@ latest_attendance = {
     "time": None
 }
 
-# ================== STREAM ==================
 def gen_frames():
     global today_date, marked_today, known_embeddings
 
     cap = cv2.VideoCapture(ESP32_STREAM_URL)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
+
     if not cap.isOpened():
-        print("❌ Không kết nối được ESP32-CAM")
+        print(" Không kết nối được ESP32-CAM")
         return
+
+    frame_count = 0
+    last_faces = []  # cache kết quả nhận diện
 
     while True:
         ret, frame = cap.read()
         if not ret:
             continue
 
-        # Reset theo ngày
+        frame_count += 1
+
+        # ===== RESET THEO NGÀY =====
         current_date = datetime.now().strftime("%Y-%m-%d")
         if current_date != today_date:
             marked_today.clear()
             face_cache.clear()
             today_date = current_date
 
-        # ✅ CHỈ DÙNG embeddings ĐÃ LOAD
-        faces = recognize_faces(frame, known_embeddings)
+        display_frame = frame.copy()
 
-        for (x1, y1, x2, y2, name, dist) in faces:
-            if (x2 - x1) < MIN_FACE_SIZE or (y2 - y1) < MIN_FACE_SIZE:
-                continue
+        if frame_count % 3 == 0:
+            small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
 
+            faces = recognize_faces(small, known_embeddings)
+            scaled_faces = []
+
+            for (x1, y1, x2, y2, name, dist) in faces:
+                
+                x1, y1, x2, y2 = (
+                    int(x1 * 2),
+                    int(y1 * 2),
+                    int(x2 * 2),
+                    int(y2 * 2),
+                )
+
+                if (x2 - x1) < MIN_FACE_SIZE or (y2 - y1) < MIN_FACE_SIZE:
+                    continue
+
+                scaled_faces.append((x1, y1, x2, y2, name, dist))
+
+            last_faces = scaled_faces
+
+        # ===== VẼ KẾT QUẢ CACHE =====
+        for (x1, y1, x2, y2, name, dist) in last_faces:
             label = "Unknown"
             color = (0, 0, 255)
 
@@ -91,10 +114,10 @@ def gen_frames():
             else:
                 face_cache.pop(name, None)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
-                frame,
-                f"{label} ({dist:.2f})",
+                display_frame,
+                label,
                 (x1, y1 - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -102,7 +125,13 @@ def gen_frames():
                 2
             )
 
-        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        # ===== JPEG NHẸ HƠN =====
+        _, buffer = cv2.imencode(
+            ".jpg",
+            display_frame,
+            [cv2.IMWRITE_JPEG_QUALITY, 60]
+        )
+
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" +
@@ -322,3 +351,5 @@ def delete_student(name: str, request: Request):
     marked_today.clear()
 
     return RedirectResponse("/admin/students?msg=deleted", status_code=302)
+
+#chay code: uvicorn main:app --reload --host 0.0.0.0 --port 8000
