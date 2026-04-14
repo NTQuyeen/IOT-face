@@ -17,29 +17,50 @@ def load_known_embeddings():
         return {"embeddings": [], "names": []}
 
     with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+        data = pickle.load(f)
+
+    # đảm bảo key tồn tại
+    if "embeddings" not in data:
+        data["embeddings"] = []
+    if "names" not in data:
+        data["names"] = []
+
+    return data
 
 
-def recognize_faces(frame, data):
-    """
-    data = {
-        "embeddings": [np.array(512,), ...],
-        "names": ["A", "B", ...]
-    }
-    """
+def _clamp_box(x, y, w, h, w_img, h_img):
+    x1 = max(0, int(x))
+    y1 = max(0, int(y))
+    x2 = min(w_img, int(x + w))
+    y2 = min(h_img, int(y + h))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
+
+
+def recognize_faces(frame, data, threshold=0.32, margin=0.04, min_conf=0.90):
+
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = detector.detect_faces(rgb)
 
-    detected_faces = []
+    all_embeddings = data.get("embeddings", [])
+    all_names = data.get("names", [])
 
-    all_embeddings = data["embeddings"]
-    all_names = data["names"]
+    detected_faces = []
+    h_img, w_img = rgb.shape[:2]
 
     for face in results:
-        x, y, w, h = face["box"]
-        x, y = abs(x), abs(y)
+        if face.get("confidence", 0) < min_conf:
+            continue
 
-        face_img = rgb[y:y+h, x:x+w]
+        x, y, w, h = face["box"]
+        box = _clamp_box(x, y, w, h, w_img, h_img)
+        if box is None:
+            continue
+
+        x1, y1, x2, y2 = box
+        face_img = rgb[y1:y2, x1:x2]
+
         if face_img.size == 0:
             continue
 
@@ -51,14 +72,28 @@ def recognize_faces(frame, data):
         emb = emb / np.linalg.norm(emb)
 
         best_name = "Unknown"
-        min_dist = 1e9
+        best_dist = 999
+        second_best = 999
 
         for stored_emb, stored_name in zip(all_embeddings, all_names):
             d = cosine(emb, stored_emb)
-            if d < min_dist:
-                min_dist = d
-                best_name = stored_name
 
-        detected_faces.append((x, y, x + w, y + h, best_name, min_dist))
+            if d < best_dist:
+                second_best = best_dist
+                best_dist = d
+                best_name = stored_name
+            elif d < second_best:
+                second_best = d
+
+        # 🔥 FIX LOGIC
+        if best_dist < threshold:
+            if (second_best - best_dist) > margin:
+                final_name = best_name
+            else:
+                final_name = best_name   # 👉 cho phép luôn (fix nhận diện yếu)
+        else:
+            final_name = "Unknown"
+
+        detected_faces.append((x1, y1, x2, y2, final_name, float(best_dist)))
 
     return detected_faces

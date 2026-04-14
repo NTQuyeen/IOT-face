@@ -1,48 +1,85 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Attendance</title>
-    <link rel="stylesheet" href="/static/admin.css">
+  <meta charset="UTF-8">
+  <title>Lịch sử chấm công</title>
+  <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
 
 <div class="top-bar">
-    <h2>👮 ADMIN DASHBOARD</h2>
-    <div class="nav">
-        <a href="/attendance" class="nav-btn">📋 Điểm danh</a>
-        <a href="/admin/students" class="nav-btn">👨‍🎓 Sinh viên</a>
-        <a href="/admin/add-student" class="nav-btn">➕ Thêm SV</a>
-        <a href="/logout" class="logout">Đăng xuất</a>
-    </div>
+  <h2>💼 QUẢN LÝ NHÂN SỰ</h2>
+  <div class="nav">
+    <a href="/attendance" class="nav-btn">📋 Bảng công</a>
+    <a href="/admin/students" class="nav-btn">👥 Nhân viên</a>
+    <a href="/admin/add-student" class="nav-btn">➕ Thêm mới</a>
+    <a href="/logout" class="logout">Thoát</a>
+  </div>
 </div>
 
-<h1>📋 Lịch sử điểm danh</h1>
+<h1>📋 Nhật ký chấm công (nhiều lần/ngày)</h1>
 
 <div class="card">
-<form method="get">
+  <form method="get" style="display:flex;gap:10px;align-items:center;">
+    <label>Chọn ngày:</label>
     <input type="date" name="date" value="{{ selected_date }}">
-    <button type="submit">🔍 Lọc</button>
-</form>
+    <button type="submit">🔍 Xem báo cáo</button>
+  </form>
 
-<br>
+  <h3 style="margin-top:20px;">Tổng hợp giờ làm</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Nhân viên</th>
+        <th>Tổng thời gian</th>
+        <th>Số phiên hoàn thành</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in totals %}
+      <tr>
+        <td><strong>{{ row[0] }}</strong></td>
+        <td>{{ row[1] }}</td>
+        <td>{{ row[2] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 
-<table>
-<thead>
-<tr>
-    <th>Tên</th>
-    <th>Thời gian</th>
-</tr>
-</thead>
-<tbody>
-{% for row in records %}
-<tr>
-    <td>{{ row[1] }}</td>   <!-- name -->
-    <td>{{ row[2] }}</td>   <!-- time -->
-</tr>
-{% endfor %}
-</tbody>
-</table>
+  <h3 style="margin-top:20px;">Lịch sử chi tiết</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Nhân viên</th>
+        <th>Check-in</th>
+        <th>Check-out</th>
+        <th>Nguồn</th>
+        <th>Trạng thái</th>
+      </tr>
+    </thead>
+
+    <tbody>
+    {% for row in records %}
+      <tr>
+        <td><strong>{{ row[1] }}</strong></td>
+        <td>{% if row[3] %}{{ row[3] }}{% else %}<span style="color:gray;">--</span>{% endif %}</td>
+        <td>{% if row[4] %}{{ row[4] }}{% else %}<span style="color:gray;">--</span>{% endif %}</td>
+        <td>{% if row[5] %}{{ row[5] }}{% else %}<span style="color:gray;">--</span>{% endif %}</td>
+        <td>
+          {% if row[3] and row[4] %}
+            <span style="color:green;">✔ Hoàn thành</span>
+          {% elif row[3] and not row[4] %}
+            <span style="color:orange;">🟡 Đang trong ca</span>
+          {% elif not row[3] and row[4] %}
+            <span style="color:blue;">🔵 Checkout-only</span>
+          {% else %}
+            <span style="color:red;">❌ Không dữ liệu</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 </body>

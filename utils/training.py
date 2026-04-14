@@ -1,4 +1,3 @@
-# utils/training.py
 import os
 import cv2
 import numpy as np
@@ -12,9 +11,23 @@ MODEL_PATH = "models/known_embeddings.pkl"
 detector = MTCNN()
 embedder = FaceNet()
 
-def train_model():
+
+def _clamp_box(x, y, w, h, w_img, h_img):
+    x1 = max(0, int(x))
+    y1 = max(0, int(y))
+    x2 = min(w_img, int(x + w))
+    y2 = min(h_img, int(y + h))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
+
+
+def train_model(min_conf: float = 0.90):
     embeddings = []
     names = []
+
+    if not os.path.exists(DATASET_DIR):
+        os.makedirs(DATASET_DIR, exist_ok=True)
 
     for person in os.listdir(DATASET_DIR):
         person_dir = os.path.join(DATASET_DIR, person)
@@ -32,10 +45,23 @@ def train_model():
             if not faces:
                 continue
 
-            x, y, w, h = faces[0]["box"]
-            x, y = abs(x), abs(y)
-            face = rgb[y:y+h, x:x+w]
+            # lấy face tốt nhất: confidence cao, diện tích lớn
+            best = max(
+                faces,
+                key=lambda f: (float(f.get("confidence", 0.0)), f["box"][2] * f["box"][3])
+            )
+            conf = float(best.get("confidence", 0.0))
+            if conf < min_conf:
+                continue
 
+            h_img, w_img = rgb.shape[:2]
+            x, y, w, h = best["box"]
+            box = _clamp_box(x, y, w, h, w_img, h_img)
+            if box is None:
+                continue
+            x1, y1, x2, y2 = box
+
+            face = rgb[y1:y2, x1:x2]
             if face.size == 0:
                 continue
 
@@ -44,16 +70,17 @@ def train_model():
             face = np.expand_dims(face, axis=0)
 
             emb = embedder.embeddings(face)[0]
-            emb = emb / np.linalg.norm(emb)
+            norm = np.linalg.norm(emb)
+            if norm == 0:
+                continue
+            emb = emb / norm
 
             embeddings.append(emb)
             names.append(person)
 
-    data = {
-        "embeddings": embeddings,
-        "names": names
-    }
+    data = {"embeddings": embeddings, "names": names}
 
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(data, f)
 

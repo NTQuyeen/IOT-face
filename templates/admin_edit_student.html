@@ -1,33 +1,122 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Edit Student</title>
-    <link rel="stylesheet" href="/static/admin.css">
+  <meta charset="UTF-8" />
+  <title>Sửa nhân viên</title>
+  <link rel="stylesheet" href="/static/admin.css" />
 </head>
 <body>
-
 <div class="top-bar">
-    <h2>👮 ADMIN DASHBOARD</h2>
-    <div class="nav">
-        <a href="/attendance" class="nav-btn">📋 Điểm danh</a>
-        <a href="/admin/students" class="nav-btn">👨‍🎓 Sinh viên</a>
-        <a href="/logout" class="logout">Đăng xuất</a>
-    </div>
+  <h2>💼 QUẢN LÝ NHÂN SỰ</h2>
+  <div class="nav">
+    <a href="/attendance" class="nav-btn">📋 Bảng công</a>
+    <a href="/admin/students" class="nav-btn">👥 Nhân viên</a>
+    <a href="/logout" class="logout">Thoát</a>
+  </div>
 </div>
 
-<h1>✏️ Sửa sinh viên</h1>
+<h1>✏️ Cập nhật nhân viên</h1>
 
 <div class="card">
-<form method="post" action="/admin/edit-student">
-    <input type="hidden" name="old_name" value="{{ old_name }}">
+  <form method="post" action="/admin/edit-student">
+    <input type="hidden" name="old_name" value="{{ old_name }}"/>
 
-    <label>Tên mới</label>
-    <input type="text" name="new_name" required>
+    <label>Tên hiện tại:</label>
+    <div style="margin-bottom:12px;color:#243b53;"><strong>{{ old_name }}</strong></div>
 
-    <button type="submit">💾 Lưu thay đổi</button>
-</form>
+    <label>UID hiện tại:</label>
+    <div style="margin-bottom:18px;color:#243b53;">
+      <strong>{{ old_uid if old_uid else "Chưa gán thẻ" }}</strong>
+    </div>
+
+    <label>Họ tên mới:</label>
+    <input type="text" name="new_name" value="{{ old_name }}" required />
+
+    <label>Mã thẻ mới (UID RFID):</label>
+    <input name="uid" id="uid" placeholder="Bấm 'Quét thẻ' rồi quét thẻ" required readonly value="{{ old_uid if old_uid else '' }}"/>
+
+    <button type="button" id="scanBtn" style="margin-bottom:10px;width:100%;">📡 Quét thẻ mới</button>
+    <div id="scanStatus" style="font-size:13px;color:#666;margin-bottom:15px;"></div>
+
+    <button type="submit" style="margin-top: 10px; width:100%;">💾 Lưu thay đổi</button>
+
+    <a
+      href="/admin/delete-student/{{ old_name }}"
+      class="logout"
+      style="display:block;text-align:center;margin-top:12px;"
+      onclick="return confirm('Xóa toàn bộ dữ liệu nhân viên này (ảnh + embeddings + UID)?')"
+    >🗑 Xóa nhân viên</a>
+
+    <a href="/admin/students" style="display:block;text-align:center;margin-top:10px;color:#666;">Hủy bỏ</a>
+  </form>
+
+  {% if error %}
+  <div style="margin-top:20px;padding:10px;background:#fee2e2;color:#991b1b;border-radius:8px;">{{ error }}</div>
+  {% endif %}
+
+  {% if success %}
+  <div style="margin-top:20px;padding:10px;background:#e6fffa;color:#2c7a7b;border-radius:8px;">{{ success }}</div>
+  {% endif %}
 </div>
 
+<script>
+const btn = document.getElementById("scanBtn");
+const uidInput = document.getElementById("uid");
+const statusBox = document.getElementById("scanStatus");
+let timer = null;
+
+async function armScan() {
+  const body = new URLSearchParams();
+  body.set("seconds", "20");
+
+  const res = await fetch("/admin/rfid/arm", {
+    method: "POST",
+    body,
+    credentials: "include"
+  });
+  return res.json();
+}
+
+async function pollUID(armedAt) {
+  const res = await fetch("/admin/rfid/latest", { credentials: "include" });
+  const data = await res.json();
+
+  if (data.status === "success" && data.uid && data.ts >= armedAt) {
+    uidInput.value = data.uid;
+    statusBox.textContent = "✅ Đã nhận UID: " + data.uid;
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+btn.addEventListener("click", async () => {
+  uidInput.value = "";
+  statusBox.textContent = "⏳ Đang chờ quét thẻ...";
+
+  try {
+    const arm = await armScan();
+    if (arm.status !== "success") {
+      statusBox.textContent = "❌ Không ARM được (chưa login hoặc cookie lỗi)";
+      return;
+    }
+
+    const armedAt = arm.armed_at;
+
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => pollUID(armedAt), 400);
+
+    setTimeout(() => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        statusBox.textContent = "⚠️ Hết thời gian chờ. Bấm Quét thẻ và thử lại.";
+      }
+    }, 20000);
+  } catch (e) {
+    statusBox.textContent = "❌ Lỗi kết nối server";
+    console.error(e);
+  }
+});
+</script>
 </body>
 </html>
