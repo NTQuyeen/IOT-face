@@ -16,7 +16,7 @@ from utils.embedding_manager import remove_student_embeddings
 from utils.embedding_manager import remove_student_embeddings, rename_student_embeddings
 
 # ================= CONFIG =================
-ESP32_STREAM_URL = "http://192.168.1.249:81/stream"
+ESP32_STREAM_URL = "http://192.168.1.12:81/stream"
 
 THRESHOLD = 0.27
 MIN_FACE_SIZE = 60
@@ -257,7 +257,7 @@ def gen_frames():
             cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 display_frame,
-                f"{label} ({dist:.2f})",
+                f"{label} ",
                 (x1, max(10, y1 - 10)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -580,3 +580,5 @@ def edit_student_action(
         "admin_edit_student.html",
         {"request": request, "old_name": new_name, "old_uid": uid, "success": "✅ Đã cập nhật nhân viên"}
     )
+
+ #uvicorn main:app --reload --host 0.0.0.0 --port 8000

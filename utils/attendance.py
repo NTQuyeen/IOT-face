@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, date as date_type
 from utils.db import get_db
+from datetime import time as time_type
 
 
 def init_db():
