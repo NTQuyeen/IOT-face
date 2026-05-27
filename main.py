@@ -1,5 +1,7 @@
 import cv2
 import time
+import csv
+import io
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -10,13 +12,17 @@ import os, shutil
 
 from utils.training import train_model
 from utils.face_processing import load_known_embeddings, recognize_faces
-from utils.attendance import mark_attendance, init_db, get_sessions_by_date, get_totals_by_date, format_seconds
+from utils.attendance import (
+    mark_attendance, init_db,
+    get_sessions_by_date, get_totals_by_date, format_seconds,
+    get_shift_overtime_totals_by_date, get_shift_overtime_totals_by_range, _month_range
+)
 from utils.db import get_db
 from utils.embedding_manager import remove_student_embeddings
 from utils.embedding_manager import remove_student_embeddings, rename_student_embeddings
 
 # ================= CONFIG =================
-ESP32_STREAM_URL = "http://192.168.1.12:81/stream"
+ESP32_STREAM_URL = "http://10.137.243.28:81/stream"
 
 THRESHOLD = 0.27
 MIN_FACE_SIZE = 60
@@ -44,8 +50,10 @@ last_action_time = {}
 
 inout_cache = {}  # name -> (state, ts)
 INOUT_CACHE_TTL = 2.0  # giây
+STATUS_TTL = 5.0  # sau 5 giây không có quét mới thì xóa status
+latest_attendance = {"name": None, "time": None, "status": None, "ts": 0.0}
 
-latest_attendance = {"name": None, "time": None, "status": None}
+
 
 # RFID capture cho đăng ký (ARM từ web)
 latest_rfid_capture = {"uid": None, "ts": 0.0}
@@ -169,7 +177,7 @@ def process_attendance(name: str, source: str = "face"):
     last_action_time[name] = now_ts
     status_text = "CHECK-IN" if action == "checkin" else "CHECK-OUT"
     latest_attendance.update(
-        {"name": name, "time": when.strftime("%H:%M:%S"), "status": status_text}
+        {"name": name, "time": when.strftime("%H:%M:%S"), "status": status_text, "ts" : now_ts,}
     )
     print(f"✅ {name} {action.upper()}")
 
@@ -302,7 +310,63 @@ def attendance_page(request: Request, date: str = None):
         "attendance.html",
         {"request": request, "records": records, "totals": totals, "selected_date": selected_date}
     )
+@app.get("/attendance/export-summary.csv")
+def export_summary_day_csv(request: Request, date: str = None):
+    if request.cookies.get("admin") != "1":
+        return RedirectResponse("/login", status_code=302)
 
+    selected_date = date or datetime.now().strftime("%Y-%m-%d")
+
+    rows = get_shift_overtime_totals_by_date(selected_date, shift_start="08:00:00", shift_end="17:00:00")
+
+    output = io.StringIO()
+    output.write("\ufeff")  # BOM cho Excel
+    w = csv.writer(output)
+    w.writerow(["date", "name", "shift_hhmmss", "overtime_hhmmss", "total_hhmmss", "sessions_done"])
+
+    for (name, shift_sec, ot_sec, total_sec, sessions_done) in rows:
+        w.writerow([
+            selected_date,
+            name,
+            format_seconds(shift_sec),
+            format_seconds(ot_sec),
+            format_seconds(total_sec),
+            sessions_done,
+        ])
+
+    data = output.getvalue().encode("utf-8")
+    headers = {"Content-Disposition": f'attachment; filename="summary_{selected_date}.csv"'}
+    return StreamingResponse(io.BytesIO(data), media_type="text/csv; charset=utf-8", headers=headers)
+
+@app.get("/attendance/export-month-summary.csv")
+def export_summary_month_csv(request: Request, month: str):
+    if request.cookies.get("admin") != "1":
+        return RedirectResponse("/login", status_code=302)
+
+    start_date, end_date = _month_range(month)
+    rows = get_shift_overtime_totals_by_range(
+        start_date, end_date,
+        shift_start="08:00:00", shift_end="17:00:00"
+    )
+
+    output = io.StringIO()
+    output.write("\ufeff")
+    w = csv.writer(output)
+    w.writerow(["date", "name", "shift_hhmmss", "overtime_hhmmss", "total_hhmmss", "sessions_done"])
+
+    for (d, name, shift_sec, ot_sec, total_sec, sessions_done) in rows:
+        w.writerow([
+            d,
+            name,
+            format_seconds(shift_sec),
+            format_seconds(ot_sec),
+            format_seconds(total_sec),
+            sessions_done,
+        ])
+
+    data = output.getvalue().encode("utf-8")
+    headers = {"Content-Disposition": f'attachment; filename="summary_{month}.csv"'}
+    return StreamingResponse(io.BytesIO(data), media_type="text/csv; charset=utf-8", headers=headers)
 
 # ================= LOGIN =================
 @app.get("/login")
@@ -338,7 +402,16 @@ def logout():
 
 @app.get("/realtime-status")
 def realtime_status():
-    return JSONResponse(latest_attendance)
+    now = time.time()
+
+    if latest_attendance.get("name") and (now - float(latest_attendance.get("ts", 0.0)) > STATUS_TTL):
+        return JSONResponse({"name": None, "time": None, "status": None})
+
+    return JSONResponse({
+        "name": latest_attendance.get("name"),
+        "time": latest_attendance.get("time"),
+        "status": latest_attendance.get("status"),
+    })
 
 
 # ================= RFID (ATTENDANCE + CAPTURE VIA ARM) =================

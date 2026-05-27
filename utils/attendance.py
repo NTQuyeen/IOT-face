@@ -156,3 +156,130 @@ def format_seconds(total_seconds: int) -> str:
     m = (total_seconds % 3600) // 60
     s = total_seconds % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+def _t(hms: str) -> time_type:
+    hh, mm, *rest = [int(x) for x in hms.split(":")]
+    ss = rest[0] if rest else 0
+    return time_type(hh, mm, ss)
+
+def _overlap_seconds(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> int:
+    start = max(a_start, b_start)
+    end = min(a_end, b_end)
+    if end <= start:
+        return 0
+    return int((end - start).total_seconds())
+
+def split_shift_overtime_seconds(
+    checkin: datetime,
+    checkout: datetime,
+    shift_start: str = "08:00:00",
+    shift_end: str = "17:00:00",
+) -> tuple[int, int, int]:
+    """
+    Return: (shift_seconds, overtime_seconds, total_seconds)
+    """
+    if not checkin or not checkout or checkout <= checkin:
+        return 0, 0, 0
+
+    total = int((checkout - checkin).total_seconds())
+    d = checkin.date()
+
+    ss = datetime.combine(d, _t(shift_start))
+    se = datetime.combine(d, _t(shift_end))
+
+    # phần nằm trong ca
+    shift_sec = _overlap_seconds(checkin, checkout, ss, se)
+    # phần ngoài ca = tổng - trong ca
+    overtime_sec = max(0, total - shift_sec)
+    return shift_sec, overtime_sec, total
+
+def get_shift_overtime_totals_by_date(
+    date_str: str,
+    shift_start: str = "08:00:00",
+    shift_end: str = "17:00:00",
+):
+    """
+    Return rows: (name, shift_seconds, overtime_seconds, total_seconds, sessions_done)
+    Chỉ tính các session đủ cặp checkin+checkout.
+    """
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT name, checkin, checkout
+        FROM attendance_sessions
+        WHERE date=%s AND checkin IS NOT NULL AND checkout IS NOT NULL
+        """,
+        (date_str,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+
+    agg = {}  # name -> [shift, ot, total, sessions]
+    for (name, checkin, checkout) in rows:
+        shift_sec, ot_sec, total_sec = split_shift_overtime_seconds(
+            checkin, checkout, shift_start=shift_start, shift_end=shift_end
+        )
+        if name not in agg:
+            agg[name] = [0, 0, 0, 0]
+        agg[name][0] += shift_sec
+        agg[name][1] += ot_sec
+        agg[name][2] += total_sec
+        agg[name][3] += 1
+
+    result = [(n, v[0], v[1], v[2], v[3]) for (n, v) in agg.items()]
+    result.sort(key=lambda x: x[3], reverse=True)
+    return result
+
+def get_shift_overtime_totals_by_range(
+    start_date: str,  # "YYYY-MM-DD" (inclusive)
+    end_date: str,    # "YYYY-MM-DD" (exclusive)
+    shift_start: str = "08:00:00",
+    shift_end: str = "17:00:00",
+):
+    """
+    Return rows: (date, name, shift_seconds, overtime_seconds, total_seconds, sessions_done)
+    """
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT date, name, checkin, checkout
+        FROM attendance_sessions
+        WHERE date >= %s AND date < %s
+          AND checkin IS NOT NULL AND checkout IS NOT NULL
+        """,
+        (start_date, end_date),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+
+    agg = {}  # (date,name) -> [shift, ot, total, sessions]
+    for (d, name, checkin, checkout) in rows:
+        shift_sec, ot_sec, total_sec = split_shift_overtime_seconds(
+            checkin, checkout, shift_start=shift_start, shift_end=shift_end
+        )
+        key = (str(d), name)
+        if key not in agg:
+            agg[key] = [0, 0, 0, 0]
+        agg[key][0] += shift_sec
+        agg[key][1] += ot_sec
+        agg[key][2] += total_sec
+        agg[key][3] += 1
+
+    result = [(d, n, v[0], v[1], v[2], v[3]) for ((d, n), v) in agg.items()]
+    result.sort(key=lambda x: (x[0], x[1]))
+    return result
+
+def _month_range(month: str) -> tuple[str, str]:
+    # "YYYY-MM" -> [start, end_exclusive]
+    y, m = month.split("-")
+    y = int(y); m = int(m)
+    start = datetime(y, m, 1).date()
+    if m == 12:
+        end = datetime(y + 1, 1, 1).date()
+    else:
+        end = datetime(y, m + 1, 1).date()
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")

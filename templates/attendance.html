@@ -17,13 +17,21 @@
   </div>
 </div>
 
-<h1>📋 Nhật ký chấm công </h1>
+<h1>📋 Nhật ký chấm công</h1>
 
 <div class="card">
-  <form method="get" style="display:flex;gap:10px;align-items:center;">
-    <label>Chọn ngày:</label>
-    <input type="date" name="date" value="{{ selected_date }}">
+  <form method="get" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <label style="margin:0;">Chọn ngày:</label>
+    <input type="date" name="date" value="{{ selected_date }}" style="margin:0;max-width:220px;">
     <button type="submit">🔍 Xem báo cáo</button>
+
+    <!-- Nút xuất (Excel mở được CSV) -->
+    <a class="nav-btn" href="/attendance/export-summary.csv?date={{ selected_date }}">
+      ⬇ Xuất Excel (ngày)
+    </a>
+    <a class="nav-btn" href="/attendance/export-month-summary.csv?month={{ selected_date[:7] }}">
+      ⬇ Xuất Excel (tháng)
+    </a>
   </form>
 
   <h3 style="margin-top:20px;">Tổng hợp giờ làm</h3>
@@ -57,7 +65,6 @@
         <th>Trạng thái</th>
       </tr>
     </thead>
-
     <tbody>
     {% for row in records %}
       <tr>
